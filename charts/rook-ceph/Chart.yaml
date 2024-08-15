@@ -1,0 +1,8 @@
+apiVersion: v2
+name: cni
+version: 0.1.0
+description: "This chart installs and configures the Rook Ceph operator (a storage orchestrator)."
+dependencies:
+  - name: rook-ceph
+    version: v1.14.5
+    repository: "https://charts.rook.io/release"

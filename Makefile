@@ -2,9 +2,11 @@
 # Global ###########################################################################################
 ####################################################################################################
 
-CURRENT_USER_ID := $(shell id -u)
-CURRENT_GROUP_ID := $(shell id -g)
-DOCKER_GROUP_ID := $(shell getent group docker | cut -d: -f3)
+OS := $(shell uname -s | tr '[:upper:]' '[:lower:]')
+ARCH := $(shell uname -m)
+
+USER_UID := $(shell id -u)
+USER_GID := $(shell id -g)
 
 KUBERNETES_VERSION := 1.29.5
 KUBECONFIG ?= $(HOME)/.kube/config
@@ -14,14 +16,16 @@ KUBECONFIG ?= $(HOME)/.kube/config
 ####################################################################################################
 
 DOCKER_CLIENT_VERSION := $(shell docker version --format '{{.Client.Version}}')
-DOCKER_RUN := docker run --rm -v $(PWD):/app -w /app  --network host -v $(KUBECONFIG):/.kube/config -e KUBECONFIG=/.kube/config
+DOCKER_KUBE_CONFIG := -v $(KUBECONFIG):/.kube/config -e KUBECONFIG=/.kube/config
+DOCKER_USER := --user $(USER_UID):$(USER_GID)
+DOCKER_RUN := docker run --rm -v $(PWD):/app -w /app --network host $(DOCKER_USER) $(DOCKER_KUBE_CONFIG)
 
 ####################################################################################################
 # Kubectl ##########################################################################################
 ####################################################################################################
 
 KUBECTL_DOCKER_VERSION := 1.30.1
-KUBECTL_DOCKER_RUN := $(DOCKER_RUN) --user root bitnami/kubectl:$(KUBECTL_DOCKER_VERSION)
+KUBECTL_DOCKER_RUN := $(DOCKER_RUN) bitnami/kubectl:$(KUBECTL_DOCKER_VERSION)
 
 ####################################################################################################
 # GoLang ###########################################################################################
@@ -31,7 +35,7 @@ GOMODCACHE ?= $(HOME)/go/pkg/mod
 GOCACHE ?= $(HOME)/.cache/go-build
 
 GO_DOCKER_VERSION := 1
-GO_DOCKER_CACHES := -v $(GOMODCACHE):/go/pkg/mod -e GOMODCACHE=/go/pkg/mod -v $(GOCACHE):/root/.cache/go-build -e GOCACHE=/root/.cache/go-build
+GO_DOCKER_CACHES := -v $(GOMODCACHE):/go/pkg/mod -e GOMODCACHE=/go/pkg/mod -v $(GOCACHE):/go/.cache/go-build -e GOCACHE=/go/.cache/go-build
 GO_DOCKER_RUN := $(DOCKER_RUN) $(GO_DOCKER_CACHES) -e CGO_ENABLED=0 golang:$(GO_DOCKER_VERSION) go
 
 ####################################################################################################
@@ -47,11 +51,12 @@ clean: test_clean minikube_clean
 ####################################################################################################
 
 GOLANGCI_LINT_VERSION := v1.59
+GOLANGCI_LINT_DOCKER := $(DOCKER_RUN) -e GOLANGCI_LINT_CACHE=/app/.cache/golangci-lint $(GO_DOCKER_CACHES) golangci/golangci-lint:$(GOLANGCI_LINT_VERSION) golangci-lint
 
 .PHONY: lint_go
 lint_go:
 	@echo "Linting go files."
-	@$(DOCKER_RUN) golangci/golangci-lint:$(GOLANGCI_LINT_VERSION) golangci-lint run --out-format colored-line-number
+	@$(GOLANGCI_LINT_DOCKER) run --out-format colored-line-number --max-issues-per-linter 3
 
 .PHONY: lint
 lint: lint_go helm_lint_charts
@@ -87,11 +92,12 @@ test: test_unit
 
 MINIKUBE_PROFILE := --profile=intelligence
 MINIKUBE_VERSION := v1.33.1
-MINIKUBE_IMAGE_NAME := minikube:$(MINIKUBE_VERSION)
-MINIKUBE_DOCKER_RUN := $(DOCKER_RUN) -v /var/run/docker.sock:/var/run/docker.sock -v $(PWD)/.minikube:/.minikube $(MINIKUBE_IMAGE_NAME)
+MINIKUBE_IMAGE_NAME := minikube-$(OS)-$(ARCH):$(MINIKUBE_VERSION)
+MINIKUBE_DOCKER_SOCK := -v /var/run/docker.sock:/var/run/docker.sock
+MINIKUBE_DOCKER_RUN := $(DOCKER_RUN) $(MINIKUBE_DOCKER_SOCK) $(MINIKUBE_IMAGE_NAME)
 
 .PHONY: minikube_clean
-minikube_clean:
+minikube_clean:git
 	@echo "Cleaning minikube."
 	@rm -rf .minikube
 	@docker rmi $(MINIKUBE_IMAGE_NAME) || true
@@ -104,9 +110,7 @@ minikube_build_image:
 	@docker build images/minikube/ \
 		--build-arg DOCKER_CLIENT_VERSION=$(DOCKER_CLIENT_VERSION) \
 		--build-arg MINIKUBE_VERSION=$(MINIKUBE_VERSION) \
-		--build-arg DOCKER_GID=$(DOCKER_GROUP_ID) \
-		--build-arg USER_UID=$(CURRENT_USER_ID) \
-		--build-arg USER_GID=$(CURRENT_GROUP_ID) \
+		--build-arg ARCH=$(ARCH) \
 		--tag $(MINIKUBE_IMAGE_NAME) \
 		--quiet
 
@@ -118,7 +122,7 @@ minikube_delete: minikube_build_image
 .PHONY: minikube_start
 minikube_start: minikube_build_image
 	@echo "Starting a minikube cluster for this project."
-	@$(MINIKUBE_DOCKER_RUN) start $(MINIKUBE_PROFILE) \
+	$(MINIKUBE_DOCKER_RUN) start $(MINIKUBE_PROFILE) \
 		--kubernetes-version=$(KUBERNETES_VERSION) \
 		--driver=docker \
 		--memory=2g \
@@ -153,18 +157,25 @@ helm_lint_charts: $(HELM_LINT_CHART_TARGETS)
 
 .PHONY: helm_install_chart_cni
 helm_install_chart_cni:
-	@echo "Updating the CNI helm chart dependencies."
+	@echo "Updating the helm chart dependencies for cni."
 	@$(HELM_DOCKER_RUN) dependency update "charts/cni"
-	@echo "Installing the CNI helm chart."
-	@$(HELM_DOCKER_RUN) upgrade cni "charts/cni" $(HELM_UPGRADE_DEFAULT_ARGS) --namespace kube-system
+	@echo "Installing the helm chart cni."
+	@$(HELM_DOCKER_RUN) upgrade cni charts/cni $(HELM_UPGRADE_DEFAULT_ARGS) --namespace kube-system
 	@echo "Waiting for cilium to be ready."
 	@$(KUBECTL_DOCKER_RUN) wait --for=condition=ready pod -l k8s-app=cilium --namespace kube-system
 
 .PHONY: helm_install_chart_cni_default_policy
 helm_install_chart_cni_default_policy:
-	@echo "Installing helm chart CNI default policies."
-	@$(HELM_DOCKER_RUN) upgrade cni-default-policy "charts/cni-default-policy" $(HELM_UPGRADE_DEFAULT_ARGS)
+	@echo "Installing helm chart cni-default-policy."
+	@$(HELM_DOCKER_RUN) upgrade cni-default-policy charts/cni-default-policy $(HELM_UPGRADE_DEFAULT_ARGS)
+
+.PHONY: helm_install_rook_ceph
+helm_install_rook_ceph:
+	@echo "Updating the helm chart dependencies for rook-ceph."
+	@$(HELM_DOCKER_RUN) dependency update charts/rook-ceph
+	@echo "Installing helm chart for rook-ceph."
+	@$(HELM_DOCKER_RUN) upgrade rook-ceph charts/rook-ceph $(HELM_UPGRADE_DEFAULT_ARGS) --create-namespace --namespace rook-ceph
 
 .PHONY: helm_install_charts
-helm_install_charts: helm_install_chart_cni helm_install_chart_cni_default_policy
+helm_install_charts: helm_install_chart_cni helm_install_chart_cni_default_policy helm_install_rook_ceph
 	@echo "Finished installing helm charts."

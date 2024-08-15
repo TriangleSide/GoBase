@@ -1,0 +1,13 @@
+apiVersion: "cilium.io/v2"
+kind: CiliumNetworkPolicy
+metadata:
+  name: rook-ceph-allow-all-egress
+  namespace: rook-ceph
+spec:
+  endpointSelector:
+    matchLabels:
+      k8s:io.kubernetes.pod.namespace: rook-ceph
+  ingress:
+    - {}
+  egress:
+    - {}

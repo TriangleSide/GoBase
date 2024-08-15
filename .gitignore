@@ -20,3 +20,6 @@ charts/*/charts/*.tgz
 
 # Minikube
 .minikube
+
+# Cache Dir
+.cache
