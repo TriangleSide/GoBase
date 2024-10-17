@@ -133,24 +133,34 @@ func checkValidatorsAgainstValue(structValidation bool, structValue reflect.Valu
 	return violations, nil
 }
 
-// validateRecursivelyIfFieldIsStruct check if a value is a struct and runs the validation on it.
-func validateRecursivelyIfFieldIsStruct(val reflect.Value) (*Violations, error) {
+// validateRecursively check if a value is a struct and runs the validation on it.
+func validateRecursively(val reflect.Value) (*Violations, error) {
 	violations := NewViolations()
 	if ValueIsNil(val) {
 		return violations, nil
 	}
 	DereferenceValue(&val)
-	if val.Kind() != reflect.Struct {
-		return violations, nil
-	}
 
-	if err := Struct(val.Interface()); err != nil {
-		var structViolations *Violations
-		if errors.As(err, &structViolations) {
-			violations.AddViolations(structViolations)
-		} else {
-			return nil, err
+	switch val.Kind() {
+	case reflect.Struct:
+		if err := Struct(val.Interface()); err != nil {
+			var structViolations *Violations
+			if errors.As(err, &structViolations) {
+				violations.AddViolations(structViolations)
+			} else {
+				return nil, err
+			}
 		}
+	case reflect.Slice, reflect.Array:
+		for i := 0; i < val.Len(); i++ {
+			recursiveViolations, err := validateRecursively(val.Index(i))
+			if err != nil {
+				return nil, err
+			}
+			violations.AddViolations(recursiveViolations)
+		}
+	default:
+		// This type is not handled. Do nothing.
 	}
 
 	return violations, nil
@@ -182,8 +192,8 @@ func Struct[T any](val T) error {
 			}
 		}
 
-		// If the field itself is a struct, validate it recursively.
-		if structFieldViolations, err := validateRecursivelyIfFieldIsStruct(fieldValueFromStruct); err == nil {
+		// validate recursively if possible.
+		if structFieldViolations, err := validateRecursively(fieldValueFromStruct); err == nil {
 			violations.AddViolations(structFieldViolations)
 		} else {
 			return err

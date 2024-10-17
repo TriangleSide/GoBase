@@ -163,4 +163,30 @@ func TestValidation(t *testing.T) {
 			Value: "one",
 		}), "validate tag cannot be empty")
 	})
+
+	t.Run("when a struct has a slice of structs and one of their validation fails it should return an error", func(t *testing.T) {
+		t.Parallel()
+		type testSliceStruct struct {
+			SliceStructValue int `validate:"gt=0"`
+		}
+		type testStruct struct {
+			Slice []testSliceStruct `validate:"required"`
+		}
+		assert.ErrorPart(t, Struct(&testStruct{
+			Slice: []testSliceStruct{{SliceStructValue: 1}, {SliceStructValue: 0}},
+		}), "validation failed on field 'SliceStructValue' with validator 'gt' and parameters '0'")
+	})
+
+	t.Run("when a struct has a slice of structs and one of their validations is incorrectly formatted it should return an error", func(t *testing.T) {
+		t.Parallel()
+		type testSliceStruct struct {
+			SliceStructValue int `validate:"not_exist"`
+		}
+		type testStruct struct {
+			Slice []testSliceStruct `validate:"required"`
+		}
+		assert.ErrorPart(t, Struct(&testStruct{
+			Slice: []testSliceStruct{{SliceStructValue: 1}},
+		}), "validation with name 'not_exist' is not registered")
+	})
 }

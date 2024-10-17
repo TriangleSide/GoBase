@@ -9,16 +9,13 @@ import (
 type Validator string
 
 var (
-	// nilReflectValue is used to check if a reflect.Value is nil.
-	nilReflectValue = reflect.ValueOf(nil)
-
 	// defaultNilErrorMessage is returned if the validator encounters a nil value.
 	defaultNilErrorMessage = "the value is nil"
 )
 
 // ValueIsNil returns true if the value is nil.
 func ValueIsNil(value reflect.Value) bool {
-	if value == nilReflectValue {
+	if !value.IsValid() {
 		return true
 	}
 	switch value.Kind() {
@@ -31,6 +28,9 @@ func ValueIsNil(value reflect.Value) bool {
 
 // DereferenceValue returns the value referenced by the pointer.
 func DereferenceValue(value *reflect.Value) {
+	if !value.IsValid() {
+		return
+	}
 	if value.Kind() == reflect.Ptr || value.Kind() == reflect.Interface {
 		*value = value.Elem()
 	}

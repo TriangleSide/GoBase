@@ -92,7 +92,7 @@ type stopValidators struct{}
 
 // Error ensures stopValidators has the error interface.
 func (v *stopValidators) Error() string {
-	panic("Must not call Error on stopValidators.")
+	return "validation halted by stopValidators signal"
 }
 
 // newValues is an error used to signal to run the rest of the validators on these new values.
@@ -102,5 +102,5 @@ type newValues struct {
 
 // Error ensures newValues has the error interface.
 func (v *newValues) Error() string {
-	panic("Must not call Error on newValues.")
+	return "validation continues with new values"
 }

@@ -128,9 +128,9 @@ func TestJSONStreamResponder(t *testing.T) {
 		t.Parallel()
 
 		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			ctx, cancelFunc := context.WithCancel(r.Context())
+			ctx, cancel := context.WithCancel(r.Context())
 			r = r.WithContext(ctx)
-			cancelFunc()
+			cancel()
 			responders.JSONStream[requestParams, responseBody](w, r, func(params *requestParams) (<-chan *responseBody, int, error) {
 				ch := make(chan *responseBody)
 				go func() {
@@ -148,7 +148,7 @@ func TestJSONStreamResponder(t *testing.T) {
 
 		body := make(map[string]interface{})
 		err = json.NewDecoder(response.Body).Decode(&body)
-		assert.Error(t, err)
+		assert.ErrorPart(t, err, "EOF")
 		assert.NoError(t, response.Body.Close())
 	})
 }
